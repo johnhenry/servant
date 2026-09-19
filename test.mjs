@@ -312,7 +312,16 @@ VyyNz/1TUWii+PL9b9yswag=
     };
     addEventListener("fetch", fetchHandler);
     const server = await start({ port });
-    const { promise: error, resolve: errorHandler } = Promise.withResolvers();
+    // Promise.withResolvers() is Node 22+ only -- this package's engines
+    // range goes down to 18.19, and CI confirmed the failure mode isn't a
+    // quick "not a function" error: it throws *before* the try/finally
+    // below starts, so the server opened on the line above is never
+    // stop()'d, leaving a dangling open listener that hangs the whole test
+    // process instead of just failing this one test.
+    let errorHandler;
+    const error = new Promise((resolve) => {
+      errorHandler = resolve;
+    });
     addEventListener("error", errorHandler);
     try {
       const response = await fetch(`http://localhost:${port}`);
