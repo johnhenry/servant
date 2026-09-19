@@ -8,7 +8,7 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
 ## 0.0.0
 
 Initial release. `servant` is extracted from
-[`leserve`](https://github.com/johnhenry/leserve)'s `controls.mjs` and
+[`leserve`](https://github.com/johnhenry/serve-cold)'s `controls.mjs` and
 `event.mjs`: a self-contained, event-driven HTTP/HTTPS server (its own
 `http`/`https` server loop, its own `WebSocketServer`, its own
 middleware/route arrays, and an `EventEmitter`-based
@@ -25,5 +25,7 @@ boundary instead of just the documentation.
 
 Behavior is unchanged from `leserve@0.0.0`'s `controls.mjs`/`event.mjs` —
 this is a pure extraction, not a rewrite. `leserve` is a real (non-optional)
-dependency, pinned to `file:../leserve` for local cross-repo development
-until both packages are published.
+dependency on the published `@johnhenry/leserve`, not a `file:` path --
+`servant` genuinely can't function without `leserve/node-request`, so this
+was never meant to be optional the way `servable`'s peer dependency on
+`leserve` is.
