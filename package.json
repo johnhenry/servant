@@ -1,0 +1,56 @@
+{
+  "name": "@johnhenry/servant",
+  "version": "0.0.0",
+  "description": "A self-contained, batteries-included HTTP/HTTPS server with built-in routing, middleware, and WebSocket support, dispatched through a service-worker-style addEventListener('fetch', ...) API. Extracted from leserve's controls.mjs/event.mjs.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/johnhenry/servant.git"
+  },
+  "homepage": "https://opensource.johnhenry.me/servant/",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=18.19"
+  },
+  "main": "./controls.mjs",
+  "exports": {
+    ".": "./controls.mjs",
+    "./controls": "./controls.mjs",
+    "./event": "./event.mjs"
+  },
+  "files": [
+    "controls.mjs",
+    "event.mjs",
+    "demo/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test.mjs",
+    "demo:events": "node demo/events.mjs"
+  },
+  "keywords": [
+    "http",
+    "https",
+    "server",
+    "node",
+    "websocket",
+    "event-listener",
+    "middleware",
+    "router"
+  ],
+  "author": "John Henry",
+  "dependencies": {
+    "leserve": "file:../leserve",
+    "theres-waldo": "^0.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "undici": "^6.19.8"
+  }
+}
