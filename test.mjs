@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 // the internal dispatcher shapes are incompatible across versions.
 import { Agent, fetch as undiciFetch } from "undici";
 import WebSocket from "ws";
-import genPort from "leserve/genport";
+import genPort from "@johnhenry/leserve/genport";
 // Import the server implementation
 import "./event.mjs";
 import {

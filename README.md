@@ -9,7 +9,7 @@ service-worker-style `addEventListener("fetch", ...)` API (see
 
 ## Why is this a separate package from `leserve`?
 
-`servant` used to live inside [`leserve`](https://github.com/johnhenry/leserve)
+`servant` used to live inside [`leserve`](https://github.com/johnhenry/serve-cold)
 as `controls.mjs` + `event.mjs`. It was extracted because it was never
 actually part of the same system as `leserve`'s recommended `serve()` API —
 the two are **completely separate server implementations** that happened to
@@ -29,7 +29,7 @@ ship in the same npm package:
 
 The **only** thing this package still shares with `leserve` is
 `toWebRequest`, the Node `IncomingMessage` → Web `Request` conversion,
-imported from [`leserve/node-request`](https://github.com/johnhenry/leserve).
+imported from [`leserve/node-request`](https://github.com/johnhenry/serve-cold).
 That's a real, load-bearing dependency (this package cannot run without it),
 not a peer/optional relationship — `leserve` is a normal `dependency` here.
 

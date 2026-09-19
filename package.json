@@ -46,7 +46,7 @@
   ],
   "author": "John Henry",
   "dependencies": {
-    "leserve": "file:../leserve",
+    "@johnhenry/leserve": "^0.0.0",
     "theres-waldo": "^0.0.0",
     "ws": "^8.18.0"
   },

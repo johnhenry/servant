@@ -3,7 +3,7 @@ import https from "node:https";
 import { WebSocketServer } from "ws";
 import { EventEmitter } from "node:events";
 import { Readable, pipeline } from "node:stream";
-import { toWebRequest } from "leserve/node-request";
+import { toWebRequest } from "@johnhenry/leserve/node-request";
 
 const eventEmitter = new EventEmitter();
 
