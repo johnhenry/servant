@@ -14,7 +14,7 @@
     "provenance": true
   },
   "engines": {
-    "node": ">=18.19"
+    "node": ">=26.0.0"
   },
   "main": "./controls.mjs",
   "exports": {
@@ -49,7 +49,6 @@
   "dependencies": {
     "@johnhenry/leserve": "^0.0.0",
     "theres-waldo": "^0.0.0",
-    "urlpattern-polyfill": "^10.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -10,7 +10,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        # engines.node >=26.0.0 -- test the floor version directly rather
+        # than a matrix of now-unsupported older majors.
+        node-version: [26]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

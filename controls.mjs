@@ -11,8 +11,10 @@ import { URLPatternImpl } from "./urlpattern.mjs";
 // ErrorEvent) -- see the WinterTC Minimum Common Web API
 // (https://min-common-api.proposal.wintertc.org/), which requires
 // EventTarget/Event/CustomEvent/ErrorEvent as globals every conformant
-// server-side runtime exposes. Node has provided all four natively since
-// well before this package's own engines floor.
+// server-side runtime exposes. All four are real, native globals on this
+// package's engines floor (Node 26+) -- confirmed directly; ErrorEvent in
+// particular is a genuinely recent addition (still missing on Node 24),
+// which is why the floor is 26, not just "some Node".
 //
 // This is a real, intentional breaking change from the previous
 // EventEmitter-based dispatch: a handler registered for "error" used to

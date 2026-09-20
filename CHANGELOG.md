@@ -9,14 +9,27 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
 
 ### Changed (breaking)
 
+- **Raised `engines.node` to `>=26.0.0`** (was `>=18.19`). Found while
+  building the `EventTarget`/`URLPattern` conformance work below: `Event`/
+  `EventTarget`/`CustomEvent` have been real Node globals for years, but
+  `ErrorEvent` is genuinely recent -- confirmed directly still missing on
+  Node 24, only landing as a real global on Node 26. Targeting 26+ let
+  every one of these ship as a plain native-global usage with no fallback
+  code or polyfill dependency anywhere in this package.
+- **`route`'s path matching now uses the native `URLPattern` global**
+  directly (no `urlpattern-polyfill` dependency -- Node 26 has it
+  natively, confirmed directly), replacing a hand-rolled colon-parameter
+  splitter. `URLPattern` is also on the WinterTC Minimum Common Web API's
+  required list.
 - **`addEventListener`/`removeEventListener` are now the real, standard
   `EventTarget` methods, not wrappers around an internal `EventEmitter`.**
   Motivated by the [WinterTC Minimum Common Web
   API](https://min-common-api.proposal.wintertc.org/), which requires
   `EventTarget`/`Event`/`CustomEvent`/`ErrorEvent` as globals every
-  conformant server-side runtime exposes -- Node has provided all four
-  natively for years, so this was a real, fixable gap, not a missing
-  platform feature. Every listener now receives a real `Event` (or a real
+  conformant server-side runtime exposes -- all four are real, native Node
+  globals on this package's engines floor (see the `engines.node` bump
+  above), so this was a real, fixable gap, not a missing platform feature.
+  Every listener now receives a real `Event` (or a real
   standard subclass) instead of a plain object or bare value:
   - `"error"` listeners now receive a real `ErrorEvent` (`.message`,
     `.error` holding the original thrown value) instead of the raw
@@ -49,15 +62,12 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
   try/catch -- every other event name goes through the real, unmodified
   `EventTarget` methods.
 
-- **`route`'s path matching now uses `URLPattern`** (via
-  `urlpattern-polyfill` where the runtime has no native global -- see
-  `urlpattern.mjs`) instead of a hand-rolled colon-parameter splitter.
-  `URLPattern` is also on the WinterTC Minimum Common Web API's required
-  list. Existing `route(method, "/hello/:name", handler)` registrations
-  need no syntax changes -- `:name` is valid `URLPattern` syntax too --
-  but **the handler signature changed**: `route`'s handler and `use`'s
-  middleware both now receive `(request, ctx)` instead of `(request,
-  params)` / `(request, response)` respectively. `ctx` is `{ params,
+- Existing `route(method, "/hello/:name", handler)` registrations need no
+  syntax changes from the `URLPattern` switch above -- `:name` is valid
+  `URLPattern` syntax too -- but **the handler signature changed**:
+  `route`'s handler and `use`'s middleware both now receive `(request,
+  ctx)` instead of `(request, params)` / `(request, response)`
+  respectively. `ctx` is `{ params,
   state, remoteAddress, raw }`, matching `leserve`'s own `serve()` context
   shape for consistency across the family; `use`'s old second argument
   (`response`) was already dead in practice -- the middleware loop
