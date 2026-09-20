@@ -1,13 +1,16 @@
 {
   "name": "@johnhenry/servant",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A self-contained, batteries-included HTTP/HTTPS server with built-in routing, middleware, and WebSocket support, dispatched through a service-worker-style addEventListener('fetch', ...) API. Extracted from leserve's controls.mjs/event.mjs.",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/johnhenry/servant.git"
+    "url": "git+https://github.com/johnhenry/servant.git"
   },
   "homepage": "https://opensource.johnhenry.me/servant/",
+  "bugs": {
+    "url": "https://github.com/johnhenry/servant/issues"
+  },
   "license": "MIT",
   "publishConfig": {
     "access": "public",

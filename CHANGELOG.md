@@ -7,6 +7,8 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
 
 ## Unreleased
 
+## 0.1.0
+
 ### Changed (breaking)
 
 - **Raised `engines.node` to `>=26.0.0`** (was `>=18.19`). Found while
