@@ -7,39 +7,15 @@ built-in routing, middleware, and WebSocket support, dispatched through a
 service-worker-style `addEventListener("fetch", ...)` API (see
 [WinterJS](https://github.com/wasmerio/winterjs)).
 
-## Why is this a separate package from `leserve`?
-
-`servant` used to live inside [`leserve`](https://github.com/johnhenry/serve-cold)
-as `controls.mjs` + `event.mjs`. It was extracted because it was never
-actually part of the same system as `leserve`'s recommended `serve()` API —
-the two are **completely separate server implementations** that happened to
-ship in the same npm package:
-
-- Their own raw `http`/`https` server loop (`serve()` has its own, separate
-  one).
-- Their own `WebSocketServer` wiring (`serve()`'s WebSocket support,
-  `onWebSocket()`, is a different, composable middleware built on a
-  different primitive, `leserve/websocket`).
-- Their own middleware/route arrays (`use()`/`route()`) — `leserve/auth` and
-  `leserve/compose` are not compatible with this model; they're built for
-  `serve()`'s plain `(Request) => Response` handler shape.
-- Their own `EventEmitter`-based `addEventListener`/`removeEventListener`
-  API, with a service-worker-style `fetchEvent.respondWith()` fallback —
-  nothing like `serve()`'s single-handler-function model.
-
-The **only** thing this package still shares with `leserve` is
-`toWebRequest`, the Node `IncomingMessage` → Web `Request` conversion,
-imported from [`leserve/node-request`](https://github.com/johnhenry/serve-cold).
-That's a real, load-bearing dependency (this package cannot run without it),
-not a peer/optional relationship — `leserve` is a normal `dependency` here.
-
-Keeping these two implementations bundled together in one package made it
-easy to reach for the wrong one, or to assume they interoperate (they don't
-— don't `start()` a `servant` server and call `leserve`'s `serve()` in the
-same process expecting them to share middleware or state). Splitting them
-into separate packages makes the choice explicit: reach for `leserve` for
-the recommended, actively-maintained `(Request) => Response` API, or
-`servant` if you want the batteries-included, event-driven alternative.
+`servant` owns its own raw `http`/`https` server loop, its own
+`WebSocketServer` wiring, and its own middleware/route arrays — it doesn't
+interoperate with any other server in this family (don't `start()` a
+`servant` server alongside another and expect them to share middleware or
+state). The one exception is `toWebRequest` (the Node `IncomingMessage` →
+Web `Request` conversion), a real, load-bearing `dependency` on
+`@johnhenry/leserve/node-request` — everything else here is self-contained.
+See [`CHANGELOG.md`](./CHANGELOG.md) for how this package came to exist, if
+you're curious.
 
 ## Installation
 
