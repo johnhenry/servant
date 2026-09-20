@@ -26,7 +26,11 @@ import {
 addEventListener("start", ({ index, port }) =>
   console.log(`Server ${index} running on port ${port}.`)
 );
-addEventListener("start", ({ index }) =>
+// Was registered as a second "start" listener (copy-paste bug predating
+// this session, found while touching every handler in this file for the
+// EventTarget migration) -- it logs "stopped" but never actually ran on
+// stop.
+addEventListener("stop", ({ index }) =>
   console.log(`Server ${index} stopped.`)
 );
 addEventListener("error", ({ message }) =>
@@ -200,8 +204,8 @@ VyyNz/1TUWii+PL9b9yswag=
 
   await test("Routing", async () => {
     const port = await genPort();
-    route("GET", "/hello/:name", async (req, params) => {
-      return new Response(`Hello, ${params.name}!`, { status: 200 });
+    route("GET", "/hello/:name", async (req, ctx) => {
+      return new Response(`Hello, ${ctx.params.name}!`, { status: 200 });
     });
 
     const server = await start({ port });
@@ -217,7 +221,7 @@ VyyNz/1TUWii+PL9b9yswag=
   await test("Middleware", async () => {
     const port = await genPort();
     let middlewareCalled = false;
-    use(async (req, res) => {
+    use(async (req, ctx) => {
       middlewareCalled = true;
       return req;
     });
@@ -239,7 +243,8 @@ VyyNz/1TUWii+PL9b9yswag=
 
   await test("WebSocket", async () => {
     const port = await genPort();
-    const webSocketHandler = (ws) => {
+    const webSocketHandler = (event) => {
+      const ws = event.socket;
       ws.on("message", (message) => {
         ws.send(`Echo: ${message}`);
       });
@@ -294,9 +299,9 @@ VyyNz/1TUWii+PL9b9yswag=
 
   await test("Custom events", async () => {
     let customEventCalled = false;
-    const customEventHandler = (data) => {
+    const customEventHandler = (event) => {
       customEventCalled = true;
-      assert.deepEqual(data, { message: "Custom event data" });
+      assert.deepEqual(event.detail, { message: "Custom event data" });
     };
     addEventListener("customEvent", customEventHandler);
 

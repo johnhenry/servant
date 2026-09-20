@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches 1.0.0.
 
+## Unreleased
+
+### Changed (breaking)
+
+- **`addEventListener`/`removeEventListener` are now the real, standard
+  `EventTarget` methods, not wrappers around an internal `EventEmitter`.**
+  Motivated by the [WinterTC Minimum Common Web
+  API](https://min-common-api.proposal.wintertc.org/), which requires
+  `EventTarget`/`Event`/`CustomEvent`/`ErrorEvent` as globals every
+  conformant server-side runtime exposes -- Node has provided all four
+  natively for years, so this was a real, fixable gap, not a missing
+  platform feature. Every listener now receives a real `Event` (or a real
+  standard subclass) instead of a plain object or bare value:
+  - `"error"` listeners now receive a real `ErrorEvent` (`.message`,
+    `.error` holding the original thrown value) instead of the raw
+    `Error` directly.
+  - `"start"`/`"stop"` listeners now receive an `Event` with `.index`/
+    `.port` instead of a plain `{index, port}` object -- destructuring
+    (`({index, port}) => ...`) still works unchanged, since those are
+    still own properties, just now on a real `Event` instance.
+  - `"websocket"` listeners now receive an `Event` with `.socket` (the
+    `ws` library socket) instead of the raw socket directly.
+  - `"fetch"` listeners are unchanged in shape -- `.request`/
+    `.respondWith()` already worked this way; the object handed to the
+    listener is now a genuine `FetchEvent` instance instead of a plain
+    object carrying the same two members.
+  - `emit(name, ...args)` is now `emit(name, detail)`, dispatching a real
+    `CustomEvent`; listeners read the payload via `event.detail` instead
+    of receiving it as a direct argument.
+
+  A real semantic difference from `EventEmitter` had to be handled
+  carefully: `EventTarget#dispatchEvent()` does **not** propagate a
+  synchronously-thrown listener exception to its caller the way
+  `EventEmitter#emit()` does -- confirmed directly, a throwing listener
+  crashes the process on the next tick instead, with `dispatchEvent()`
+  itself returning normally. Without accounting for this, a throwing
+  `"fetch"` handler would have crashed the whole server instead of
+  producing the clean 500 response it always has. `"fetch"` listeners are
+  now wrapped (transparently, at `addEventListener("fetch", ...)`
+  registration) to catch a synchronous throw and surface it back to
+  `start()`'s own dispatch site, which re-throws it inside its existing
+  try/catch -- every other event name goes through the real, unmodified
+  `EventTarget` methods.
+
+- **`route`'s path matching now uses `URLPattern`** (via
+  `urlpattern-polyfill` where the runtime has no native global -- see
+  `urlpattern.mjs`) instead of a hand-rolled colon-parameter splitter.
+  `URLPattern` is also on the WinterTC Minimum Common Web API's required
+  list. Existing `route(method, "/hello/:name", handler)` registrations
+  need no syntax changes -- `:name` is valid `URLPattern` syntax too --
+  but **the handler signature changed**: `route`'s handler and `use`'s
+  middleware both now receive `(request, ctx)` instead of `(request,
+  params)` / `(request, response)` respectively. `ctx` is `{ params,
+  state, remoteAddress, raw }`, matching `leserve`'s own `serve()` context
+  shape for consistency across the family; `use`'s old second argument
+  (`response`) was already dead in practice -- the middleware loop
+  `break`s the instant one middleware returns a `Response`, so no later
+  middleware ever actually observed a prior one's result.
+
+  Deliberately **not** adopting a Cloudflare-Workers-style `(request, env,
+  ctx)` three-argument signature: `env` is a real concept there (runtime-
+  injected bindings -- KV namespaces, secrets, service bindings) with no
+  equivalent in this Node-based server; adding an unused `env` parameter
+  would copy the shape of that convention without the substance behind
+  it.
+
 ## 0.0.0
 
 Initial release. `servant` is extracted from

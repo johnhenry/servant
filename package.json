@@ -25,6 +25,7 @@
   "files": [
     "controls.mjs",
     "event.mjs",
+    "urlpattern.mjs",
     "demo/",
     "README.md",
     "CHANGELOG.md",
@@ -48,6 +49,7 @@
   "dependencies": {
     "@johnhenry/leserve": "^0.0.0",
     "theres-waldo": "^0.0.0",
+    "urlpattern-polyfill": "^10.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

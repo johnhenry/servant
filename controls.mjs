@@ -1,33 +1,127 @@
 import http from "node:http";
 import https from "node:https";
 import { WebSocketServer } from "ws";
-import { EventEmitter } from "node:events";
 import { Readable, pipeline } from "node:stream";
 import { toWebRequest } from "@johnhenry/leserve/node-request";
+import { URLPatternImpl } from "./urlpattern.mjs";
 
-const eventEmitter = new EventEmitter();
+// A real EventTarget, not an EventEmitter wearing addEventListener/
+// removeEventListener as aliases for .on()/.off(). Every event dispatched
+// through it is a genuine Event (or a real, standard subclass like
+// ErrorEvent) -- see the WinterTC Minimum Common Web API
+// (https://min-common-api.proposal.wintertc.org/), which requires
+// EventTarget/Event/CustomEvent/ErrorEvent as globals every conformant
+// server-side runtime exposes. Node has provided all four natively since
+// well before this package's own engines floor.
+//
+// This is a real, intentional breaking change from the previous
+// EventEmitter-based dispatch: a handler registered for "error" used to
+// receive the raw thrown Error directly; it now receives an ErrorEvent
+// (with the same `.message`, plus `.error` holding the original Error).
+// "start"/"stop"/"websocket" similarly now receive a real Event carrying
+// the same property names previously destructured directly off a plain
+// object (`.index`/`.port`/`.socket`), not the bare value itself.
+// "fetch" is unchanged in shape -- it was already `.request`/
+// `.respondWith()` on the object handed to the listener; that object is
+// now a genuine FetchEvent instance instead of a plain object, but nothing
+// a handler reads or calls needs to change.
+const target = new EventTarget();
 
-// Node's `EventEmitter` special-cases the "error" event: emitting it with
-// zero listeners *throws* the error instead of silently dropping it.
-// `start()`'s request handler emits "error" on every caught exception
-// purely to notify anyone who opted in via `addEventListener("error", ...)`
-// — that's optional, not a requirement for using this server. Without this
-// no-op default listener, literally any thrown route/middleware/fetch-event
-// error crashes the entire process unless the consumer happens to have
-// registered an error listener. A permanent no-op listener neutralizes
-// that footgun; user-registered listeners still fire normally alongside it.
-eventEmitter.on("error", () => {});
+class FetchEvent extends Event {
+  #response;
+  #error;
+  constructor(request) {
+    super("fetch");
+    this.request = request;
+  }
+  respondWith(response) {
+    this.#response = response;
+  }
+  /** @private -- set by the addEventListener("fetch", ...) wrapper below, read by start()'s dispatch site. */
+  reportError(error) {
+    this.#error = error;
+  }
+  get response() {
+    return this.#response;
+  }
+  get error() {
+    return this.#error;
+  }
+}
+
+class StartEvent extends Event {
+  constructor(index, port) {
+    super("start");
+    this.index = index;
+    this.port = port;
+  }
+}
+
+class StopEvent extends Event {
+  constructor(index) {
+    super("stop");
+    this.index = index;
+  }
+}
+
+class WebSocketEvent extends Event {
+  constructor(socket) {
+    super("websocket");
+    this.socket = socket;
+  }
+}
+
+// "fetch" is the one event whose whole point is producing a return value
+// (the response) that start()'s request handler is synchronously depending
+// on -- every other event here (start/stop/websocket/error/custom) is a
+// genuine fire-and-forget notification. But real EventTarget#dispatchEvent
+// does *not* propagate a synchronously-thrown listener exception to its
+// caller the way EventEmitter#emit does -- it reports it on the next tick
+// instead (confirmed directly: a throwing listener crashes the process one
+// tick later, dispatchEvent() itself returns normally). Without this
+// wrapper, a throwing fetch handler would crash the whole server instead
+// of producing a clean 500 the way it always has. Only "fetch" listeners
+// are wrapped -- addEventListener/removeEventListener are the real,
+// unmodified EventTarget methods for every other event name.
+const fetchListenerWrappers = new WeakMap();
+
+const addEventListener = (event, handler, options) => {
+  if (event === "fetch" && typeof handler === "function") {
+    if (!fetchListenerWrappers.has(handler)) {
+      fetchListenerWrappers.set(handler, (fetchEvent) => {
+        try {
+          handler(fetchEvent);
+        } catch (error) {
+          fetchEvent.reportError(error);
+        }
+      });
+    }
+    target.addEventListener(event, fetchListenerWrappers.get(handler), options);
+    return;
+  }
+  target.addEventListener(event, handler, options);
+};
+
+const removeEventListener = (event, handler, options) => {
+  if (event === "fetch" && fetchListenerWrappers.has(handler)) {
+    target.removeEventListener(event, fetchListenerWrappers.get(handler), options);
+    return;
+  }
+  target.removeEventListener(event, handler, options);
+};
+
+// Node's EventTarget does *not* special-case "error" the way EventEmitter
+// does (emitting to zero listeners there just throws) -- dispatchEvent()
+// with no listeners registered is always a silent no-op, for every event
+// name including "error". That's the correct behavior here (an
+// unregistered error listener is optional, not a requirement -- see the
+// "no crash with zero error listeners" test), so no permanent no-op
+// listener is needed the way the old EventEmitter-based version required
+// one.
 
 const middlewares = [];
+/** @type {{ method: string, pattern: InstanceType<typeof URLPatternImpl>, handler: Function }[]} */
 const routes = [];
-
-const addEventListener = (event, handler) => {
-  eventEmitter.on(event, handler);
-};
-
-const removeEventListener = (event, handler) => {
-  eventEmitter.off(event, handler);
-};
 
 const servers = [];
 
@@ -41,10 +135,16 @@ const start = async (options) => {
       // valid URL). This must happen *inside* the try block — previously
       // it ran before it, so a single malformed request threw an uncaught
       // exception that crashed the whole process.
-      const request = toWebRequest(req);
+      const request = toWebRequest(req, { attachRaw: true });
+      const ctx = {
+        params: {},
+        state: new Map(),
+        remoteAddress: req.socket?.remoteAddress,
+        raw: req,
+      };
 
       for (const middleware of middlewares) {
-        const result = await middleware(request, response);
+        const result = await middleware(request, ctx);
         if (result instanceof Response) {
           response = result;
           break;
@@ -53,33 +153,28 @@ const start = async (options) => {
 
       if (!response) {
         const url = new URL(req.url, `http://${req.headers.host}`);
-        const route = routes.find((r) => {
-          if (r.method !== req.method) return false;
-          const pathParts = r.path.split("/");
-          const urlParts = url.pathname.split("/");
-          if (pathParts.length !== urlParts.length) return false;
-          const params = {};
-          for (let i = 0; i < pathParts.length; i++) {
-            if (pathParts[i].startsWith(":")) {
-              params[pathParts[i].slice(1)] = urlParts[i];
-            } else if (pathParts[i] !== urlParts[i]) {
-              return false;
-            }
+        let matchedRoute;
+        let match;
+        for (const candidate of routes) {
+          if (candidate.method !== req.method) continue;
+          match = candidate.pattern.exec(url);
+          if (match) {
+            matchedRoute = candidate;
+            break;
           }
-          request.params = params;
-          return true;
-        });
+        }
 
-        if (route) {
-          response = await route.handler(request, request.params);
+        if (matchedRoute) {
+          ctx.params = { ...match.pathname.groups };
+          response = await matchedRoute.handler(request, ctx);
         } else {
-          const fetchEvent = {
-            request,
-            respondWith: (r) => {
-              response = r;
-            },
-          };
-          eventEmitter.emit("fetch", fetchEvent);
+          const fetchEvent = new FetchEvent(request);
+          target.dispatchEvent(fetchEvent);
+          // Re-throw synchronously here (inside this function's own
+          // try/catch, below) rather than at the point the listener itself
+          // threw -- see the wrapper in addEventListener() above for why.
+          if (fetchEvent.error) throw fetchEvent.error;
+          response = fetchEvent.response;
           if (!response) {
             response = new Response("Not Found", { status: 404 });
           }
@@ -90,7 +185,7 @@ const start = async (options) => {
         response = new Response("Not Found", { status: 404 });
       }
     } catch (error) {
-      eventEmitter.emit("error", error);
+      target.dispatchEvent(new ErrorEvent("error", { error, message: error?.message }));
       // Prefer a tagged status from the error (e.g. the 400 thrown by
       // `toWebRequest()` for a malformed URL, or a 413 thrown by
       // `body.mjs`'s `json()`/`text()` for an oversized payload) so those
@@ -133,7 +228,7 @@ const start = async (options) => {
       // propagation and destroys both sides for us.
       pipeline(Readable.fromWeb(response.body), res, (err) => {
         if (err) {
-          eventEmitter.emit("error", err);
+          target.dispatchEvent(new ErrorEvent("error", { error: err, message: err.message }));
           res.destroy(err);
         }
       });
@@ -149,14 +244,14 @@ const start = async (options) => {
   const wss = new WebSocketServer({ server });
 
   wss.on("connection", (ws, req) => {
-    eventEmitter.emit("websocket", ws);
+    target.dispatchEvent(new WebSocketEvent(ws));
   });
 
   return new Promise((resolve) => {
     server.listen(options.port, () => {
       const index = servers.length;
       servers.push(server);
-      eventEmitter.emit("start", { index, port: options.port });
+      target.dispatchEvent(new StartEvent(index, options.port));
       resolve(index);
     });
   });
@@ -167,7 +262,7 @@ const stop = (index) => {
   return new Promise((resolve) => {
     if (server?.listening) {
       server.close(() => {
-        eventEmitter.emit("stop", { index });
+        target.dispatchEvent(new StopEvent(index));
         delete servers[index];
         resolve();
       });
@@ -177,8 +272,14 @@ const stop = (index) => {
   });
 };
 
-const emit = (event, ...args) => {
-  return eventEmitter.emit(event, ...args);
+// Generic escape hatch for consumer-defined event names, e.g.
+// `emit("customEvent", payload)`. `CustomEvent`'s own `.detail` is the
+// standard place for an arbitrary payload on a generic event -- unlike
+// "fetch"/"start"/"stop"/"websocket"/"error" above, there's no fixed shape
+// to flatten onto named properties here, since the payload can be
+// anything.
+const emit = (event, detail) => {
+  return target.dispatchEvent(new CustomEvent(event, { detail }));
 };
 
 const use = (middleware) => {
@@ -186,7 +287,13 @@ const use = (middleware) => {
 };
 
 const route = (method, path, handler) => {
-  routes.push({ method, path, handler });
+  // URLPattern's `:name` colon-parameter syntax is a superset of what this
+  // package's own hand-rolled matcher already supported, so every existing
+  // `route(method, "/hello/:name", ...)` call keeps working unchanged --
+  // only the *matching engine* underneath changed, along with what a
+  // handler receives the params through (see below).
+  const pattern = new URLPatternImpl({ pathname: path });
+  routes.push({ method, pattern, handler });
 };
 
 const createServerSentEvent = (data, event, id) => {

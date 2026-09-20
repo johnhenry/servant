@@ -42,17 +42,23 @@ addEventListener("fetch", (event) => {
 
 Imported as a side effect from `@johnhenry/servant/event` — importing that
 module attaches `addEventListener`/`removeEventListener` onto `globalThis`.
-They are otherwise plain wrappers around an internal `EventEmitter`.
+These are the **real, standard `EventTarget` methods** (see the [WinterTC
+Minimum Common Web API](https://min-common-api.proposal.wintertc.org/),
+which requires `EventTarget`/`Event`/`CustomEvent`/`ErrorEvent` as globals
+every conformant server-side runtime exposes) — not wrappers around an
+internal `EventEmitter`. Every listener receives a real `Event` (or a real,
+standard subclass), not a plain object:
 
-Available events:
+| Event     | Handler receives                                                      |
+| --------- | ------------------------------------------------------------------------ |
+| fetch     | A `FetchEvent` — `.request` (the `Request`), `.respondWith(response)`    |
+| start     | An `Event` with `.index`, `.port`                                       |
+| stop      | An `Event` with `.index`                                                |
+| error     | A real `ErrorEvent` — `.message`, `.error` (the original thrown value)   |
+| websocket | An `Event` with `.socket` (the `ws` library socket)                     |
 
-| Event     | Description                                            |
-| --------- | ------------------------------------------------------ |
-| fetch     | Emitted for handling HTTP requests                     |
-| start     | Emitted when the server starts                         |
-| stop      | Emitted when the server stops                          |
-| error     | Emitted when a server error occurs                     |
-| websocket | Emitted when a new WebSocket connection is established |
+`emit(name, detail)` dispatches a real `CustomEvent`; listeners read the
+payload via `event.detail`.
 
 ### `start(options)`
 
@@ -75,28 +81,36 @@ Stops the server started with the given index.
 
 ### `use(middleware)`
 
-Registers a middleware, run in registration order before routing/dispatch:
+Registers a middleware, run in registration order before routing/dispatch.
+Both `use` and `route` (below) take the same `(request, ctx)` shape — `ctx`
+is `{ params, state, remoteAddress, raw }` (`state` is a fresh `Map` per
+request, for passing data between middlewares/handlers; `params` is `{}`
+until a route actually matches):
 
 ```javascript
-use(async (req, res) => {
-  console.log(`[Middleware] ${req.method} ${req.url}`);
+use(async (req, ctx) => {
+  console.log(`[Middleware] ${req.method} ${req.url} from ${ctx.remoteAddress}`);
   return req;
 });
 ```
 
 ### `route(method, path, handler)`
 
-Registers a route. `path` segments prefixed with `:` are captured as params:
+Registers a route. `path` is compiled with
+[`URLPattern`](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern)
+(via `urlpattern-polyfill` where the runtime has no native global) --
+segments prefixed with `:` are captured into `ctx.params`:
 
 ```javascript
-route("GET", "/hello/:name", async (req, params) => {
-  return new Response(`Hello, ${params.name}!`, { status: 200 });
+route("GET", "/hello/:name", async (req, ctx) => {
+  return new Response(`Hello, ${ctx.params.name}!`, { status: 200 });
 });
 ```
 
-### `emit(event, ...args)`
+### `emit(name, detail)`
 
-Emits a custom event on the internal `EventEmitter`.
+Dispatches a real `CustomEvent(name, { detail })` on the same `EventTarget`
+`addEventListener` listens on.
 
 ### `createServerSentEvent(data, event?, id?)`
 
@@ -119,9 +133,9 @@ addEventListener("fetch", (event) => {
 ### WebSockets
 
 ```javascript
-addEventListener("websocket", (ws) => {
-  ws.on("message", (message) => {
-    ws.send(`Echo: ${message}`);
+addEventListener("websocket", (event) => {
+  event.socket.on("message", (message) => {
+    event.socket.send(`Echo: ${message}`);
   });
 });
 ```
