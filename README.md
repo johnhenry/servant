@@ -1,5 +1,7 @@
 # servant
 
+Full documentation: [opensource.johnhenry.me/servant](https://opensource.johnhenry.me/servant/)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A self-contained, batteries-included HTTP/HTTPS server for Node.js with
@@ -35,6 +37,8 @@ addEventListener("fetch", (event) => {
   event.respondWith(new Response("Hello, World!", { status: 200 }));
 });
 ```
+
+See `demo/` for a working example — run it with `npm run demo:events`.
 
 ## API
 
@@ -146,6 +150,24 @@ addEventListener("websocket", (event) => {
 | -------------------------- | --------------------------------------------------------------------------- |
 | `@johnhenry/servant` or `@johnhenry/servant/controls` | `start`, `stop`, `use`, `route`, `emit`, `createServerSentEvent`, `addEventListener`, `removeEventListener` |
 | `@johnhenry/servant/event` | Side-effecting module; attaches `addEventListener`/`removeEventListener` to `globalThis` |
+
+## Security model
+
+servant is a thin, self-contained HTTP/WebSocket server loop — it does not
+add any request-level security controls beyond what raw Node `http`/`https`
+gives you. Specifically:
+
+- **No authentication or authorization.** `start()`/`use()`/`route()` dispatch every request that reaches the process to your middleware/handler chain. Access control, session/cookie validation, and API-key checks are entirely your responsibility to add via `use()`.
+- **`request.url` is built from the client-supplied `Host` header, unvalidated.** Both `controls.mjs`'s own routing (`new URL(req.url, \`http://${req.headers.host}\`)`) and the shared `toWebRequest()` it depends on (`@johnhenry/leserve/node-request`) construct the request's URL/origin straight from `req.headers.host`, falling back to `"localhost"` only if the header is absent entirely — there is no allowlist or validation otherwise. A client can send any `Host` value it wants. If a handler reads `request.url` (or its `.host`/`.origin`) to build absolute links, redirects, password-reset URLs, or a CORS decision, that value is attacker-controlled input, not a trustworthy one — unless a reverse proxy in front of servant strips/overwrites the inbound `Host` header before the request reaches it.
+- **Thrown errors with a tagged `.status` return `error.message` verbatim as the response body.** Only errors without a valid 400–599 `.status` fall back to the generic `"Internal Server Error"`; anything else (including a `413` from an upstream body-size check, or any error a middleware throws with a `.status` set) sends `error.message` directly to the client. Don't put internal detail — stack fragments, file paths, query values — into a thrown error's `.message` unless you intend for it to be public.
+- **No built-in CORS, rate limiting, or request body size limit.** All of that is left to middleware you write with `use()`; nothing here imposes a ceiling on request size or concurrency by default.
+- **WebSocket connections are accepted with no `Origin` check.** `wss.on("connection", ...)` dispatches every incoming WebSocket handshake to your `"websocket"` listener regardless of the connecting page's origin — the Same-Origin Policy does not apply to WebSocket handshakes, so any web page can open a connection to a servant server the same way a legitimate client would (cross-site WebSocket hijacking). Worse, the `WebSocketEvent` your listener receives exposes only `.socket` (the raw `ws` connection) — not the underlying handshake `req` — so there is no `Origin` header available through servant's documented API to check even if you wanted to. If Origin validation matters for your deployment, you currently have to reach outside `addEventListener("websocket", ...)` for it (e.g. a reverse proxy that enforces it before the connection reaches servant).
+
+None of the above is a defect specific to servant — it is what "a thin
+wrapper around Node's `http`/`https`/`ws`" means. If you need any of these
+protections, add them yourself in `use()` middleware or in front of servant
+(a reverse proxy), the same way you would for Express or any other
+minimal Node HTTP framework.
 
 ## License
 
