@@ -20,7 +20,7 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
   servant still enforces nothing by default, matching its "thin wrapper"
   design.
 
-## 0.1.0
+## 0.1.0 (2026-09-19)
 
 ### Changed (breaking)
 
@@ -96,7 +96,7 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
   would copy the shape of that convention without the substance behind
   it.
 
-## 0.0.0
+## 0.0.0 (2026-09-19)
 
 Initial release. `servant` is extracted from
 [`leserve`](https://github.com/johnhenry/serve-cold)'s `controls.mjs` and
