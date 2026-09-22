@@ -67,9 +67,11 @@ class StopEvent extends Event {
 }
 
 class WebSocketEvent extends Event {
-  constructor(socket) {
+  constructor(socket, request) {
     super("websocket");
     this.socket = socket;
+    /** The original handshake Request -- read `.headers.get("origin")` to reject cross-site connections servant itself does not filter. */
+    this.request = request;
   }
 }
 
@@ -246,7 +248,11 @@ const start = async (options) => {
   const wss = new WebSocketServer({ server });
 
   wss.on("connection", (ws, req) => {
-    target.dispatchEvent(new WebSocketEvent(ws));
+    // Same conversion the main request handler uses -- gives listeners a
+    // real Request (`.headers.get("origin")`, `.url`, etc.) instead of the
+    // raw Node IncomingMessage, consistent with every other event here.
+    const request = toWebRequest(req, { attachRaw: true });
+    target.dispatchEvent(new WebSocketEvent(ws, request));
   });
 
   return new Promise((resolve) => {

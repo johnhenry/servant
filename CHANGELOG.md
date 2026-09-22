@@ -7,6 +7,19 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
 
 ## Unreleased
 
+### Added
+
+- **`WebSocketEvent` now carries `.request`** (the handshake converted to a
+  real `Request` via the same `toWebRequest()` every other event already
+  uses), alongside the existing `.socket`. Previously a `"websocket"`
+  listener had no way to read the connecting page's `Origin` at all --
+  found while writing this package's own Security Model section, which
+  had to describe that gap as a real, unclosed one rather than something
+  a consumer could work around. `event.request.headers.get("origin")` is
+  now available for anyone who wants to reject cross-site connections;
+  servant still enforces nothing by default, matching its "thin wrapper"
+  design.
+
 ## 0.1.0
 
 ### Changed (breaking)

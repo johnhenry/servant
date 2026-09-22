@@ -275,6 +275,58 @@ VyyNz/1TUWii+PL9b9yswag=
     }
   });
 
+  await test("WebSocketEvent exposes the handshake request, so a listener can check Origin", async () => {
+    const port = await genPort();
+    let seenOrigin;
+    const webSocketHandler = (event) => {
+      seenOrigin = event.request.headers.get("origin");
+      if (seenOrigin !== "https://allowed.example") {
+        event.socket.close(1008, "origin not allowed");
+        return;
+      }
+      event.socket.send("welcome");
+    };
+    addEventListener("websocket", webSocketHandler);
+    const server = await start({ port });
+    try {
+      await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://localhost:${port}`, {
+          headers: { origin: "https://allowed.example" },
+        });
+        ws.on("message", (data) => {
+          try {
+            assert.equal(data.toString(), "welcome");
+            assert.equal(seenOrigin, "https://allowed.example");
+            ws.close();
+            resolve();
+          } catch (err) {
+            ws.close();
+            reject(err);
+          }
+        });
+        ws.on("error", reject);
+      });
+      await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://localhost:${port}`, {
+          headers: { origin: "https://evil.example" },
+        });
+        ws.on("close", (code) => {
+          try {
+            assert.equal(code, 1008);
+            assert.equal(seenOrigin, "https://evil.example");
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        });
+        ws.on("error", reject);
+      });
+    } finally {
+      removeEventListener("websocket", webSocketHandler);
+      await stop(server);
+    }
+  });
+
   await test("Server-Sent Events", async () => {
     // TODO: can I use an EventSource Polyfill?
     const port = await genPort();
