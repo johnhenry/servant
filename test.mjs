@@ -467,6 +467,79 @@ VyyNz/1TUWii+PL9b9yswag=
     }
   });
 
+  await test("an async fetch listener that awaits before calling respondWith() is honored, not raced by the 404 fallback", async () => {
+    // Regression for #4: dispatchEvent() invokes listeners synchronously and
+    // returns immediately, ignoring whatever a listener returns. A listener
+    // that does any `await` before calling respondWith() therefore hadn't
+    // answered yet by the time the dispatch site checked `.response`, so
+    // servant's own 404 fallback won every time -- even though the listener
+    // went on to call respondWith() a moment later. Exact repro shape from
+    // the issue body.
+    const port = await genPort();
+    const asyncHandler = async (event) => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      event.respondWith(new Response("hello"));
+    };
+    addEventListener("fetch", asyncHandler);
+    const server = await start({ port });
+    try {
+      const response = await fetch(`http://localhost:${port}/`);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "hello");
+    } finally {
+      removeEventListener("fetch", asyncHandler);
+      await stop(server);
+    }
+  });
+
+  await test("respondWith() accepts a Promise<Response>, not just a Response", async () => {
+    // Real service-worker semantics: respondWith() may be handed a promise
+    // directly (no separate `await` inside the listener needed) and the
+    // dispatcher resolves it before falling through to the 404 fallback.
+    const port = await genPort();
+    const promiseHandler = (event) => {
+      event.respondWith(
+        new Promise((resolve) =>
+          setTimeout(() => resolve(new Response("delayed")), 1)
+        )
+      );
+    };
+    addEventListener("fetch", promiseHandler);
+    const server = await start({ port });
+    try {
+      const response = await fetch(`http://localhost:${port}/`);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "delayed");
+    } finally {
+      removeEventListener("fetch", promiseHandler);
+      await stop(server);
+    }
+  });
+
+  await test("an async fetch listener that rejects still produces an error response instead of hanging or crashing", async () => {
+    const port = await genPort();
+    const rejectingHandler = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      throw new Error("async boom");
+    };
+    addEventListener("fetch", rejectingHandler);
+    let errorHandler;
+    const error = new Promise((resolve) => {
+      errorHandler = resolve;
+    });
+    addEventListener("error", errorHandler);
+    const server = await start({ port });
+    try {
+      const response = await fetch(`http://localhost:${port}/`);
+      assert.equal(response.status, 500);
+      assert.equal((await error).message, "async boom");
+    } finally {
+      removeEventListener("fetch", rejectingHandler);
+      removeEventListener("error", errorHandler);
+      await stop(server);
+    }
+  });
+
   await test("a response body stream that errors mid-response does not crash the process", async () => {
     const port = await genPort();
     const brokenStreamHandler = (event) => {

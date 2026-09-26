@@ -7,6 +7,24 @@ and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2
 
 ## Unreleased
 
+### Fixed
+
+- **A `"fetch"` listener that does any `await` before calling
+  `respondWith()` is now honored, instead of losing the race to servant's
+  own built-in 404 fallback ([#4](https://github.com/johnhenry/servant/issues/4)).**
+  `target.dispatchEvent(fetchEvent)` at `start()`'s dispatch site only
+  invokes listeners synchronously and returns immediately -- it never
+  waited for an async listener's returned promise, so the dispatch site
+  checked `fetchEvent.response` before an async listener had gotten past
+  its first `await` to actually call `respondWith()`. `FetchEvent` now
+  collects every async listener's returned promise (via a new
+  `waitFor()`, populated by the `addEventListener("fetch", ...)` wrapper)
+  and a new `settle()` awaits all of them -- plus resolves `.response`
+  itself if it was set to a `Promise<Response>` rather than a `Response`
+  -- before the dispatch site reads `.response`/`.error`. Matches real
+  service-worker semantics, where `respondWith()` may be handed a promise
+  directly and the dispatcher waits on it.
+
 ### Added
 
 - **`WebSocketEvent` now carries `.request`** (the handshake converted to a

@@ -32,6 +32,16 @@ const target = new EventTarget();
 class FetchEvent extends Event {
   #response;
   #error;
+  // Real service workers let a listener do async work before calling
+  // respondWith() (and/or hand respondWith() a Promise<Response> directly)
+  // -- the dispatcher is expected to wait for that before falling through
+  // to a default response. EventTarget#dispatchEvent() itself has no such
+  // waiting built in: it invokes every listener synchronously and returns
+  // immediately, ignoring whatever a listener returns. So an async fetch
+  // listener's returned promise is stashed here (by the addEventListener
+  // wrapper below) and awaited by settle(), which start()'s dispatch site
+  // calls after dispatchEvent() returns, before reading `.response`/`.error`.
+  #pending = [];
   constructor(request) {
     super("fetch");
     this.request = request;
@@ -42,6 +52,25 @@ class FetchEvent extends Event {
   /** @private -- set by the addEventListener("fetch", ...) wrapper below, read by start()'s dispatch site. */
   reportError(error) {
     this.#error = error;
+  }
+  /** @private -- called by the addEventListener("fetch", ...) wrapper below for every listener invocation that returns a thenable, so settle() knows to wait for it. */
+  waitFor(promise) {
+    this.#pending.push(promise);
+  }
+  /**
+   * @private -- awaited by start()'s dispatch site, after dispatchEvent()
+   * returns, before reading `.response`/`.error`. Waits for every async
+   * listener to finish (so a respondWith() called after an `await` is seen),
+   * then resolves `.response` itself in case it was set to a Promise<Response>
+   * rather than a Response.
+   */
+  async settle() {
+    if (this.#pending.length) {
+      await Promise.allSettled(this.#pending);
+    }
+    if (this.#response && typeof this.#response.then === "function") {
+      this.#response = await this.#response;
+    }
   }
   get response() {
     return this.#response;
@@ -94,7 +123,21 @@ const addEventListener = (event, handler, options) => {
     if (!fetchListenerWrappers.has(handler)) {
       fetchListenerWrappers.set(handler, (fetchEvent) => {
         try {
-          handler(fetchEvent);
+          const result = handler(fetchEvent);
+          // An async listener's body up to its first `await` still runs
+          // synchronously here (so a synchronous throw before any `await`
+          // is still caught above), but everything after that first
+          // `await` -- including a respondWith() call -- only happens once
+          // this returned promise settles. Register it so settle() (called
+          // from start()'s dispatch site, after dispatchEvent() returns)
+          // waits for it before checking whether respondWith() was called.
+          if (result && typeof result.then === "function") {
+            fetchEvent.waitFor(
+              result.catch((error) => {
+                fetchEvent.reportError(error);
+              })
+            );
+          }
         } catch (error) {
           fetchEvent.reportError(error);
         }
@@ -174,6 +217,14 @@ const start = async (options) => {
         } else {
           const fetchEvent = new FetchEvent(request);
           target.dispatchEvent(fetchEvent);
+          // dispatchEvent() itself only runs listeners synchronously and
+          // returns immediately -- it does not wait for an async listener's
+          // returned promise. settle() (see FetchEvent above) waits for any
+          // such promise before we check `.response`/`.error` below, so a
+          // listener that awaits before calling respondWith() (or hands
+          // respondWith() a Promise<Response>) is honored instead of losing
+          // the race to the 404 fallback further down.
+          await fetchEvent.settle();
           // Re-throw synchronously here (inside this function's own
           // try/catch, below) rather than at the point the listener itself
           // threw -- see the wrapper in addEventListener() above for why.
