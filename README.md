@@ -56,7 +56,7 @@ standard subclass), not a plain object:
 | Event     | Handler receives                                                      |
 | --------- | ------------------------------------------------------------------------ |
 | fetch     | A `FetchEvent` — `.request` (the `Request`), `.respondWith(response)`    |
-| start     | An `Event` with `.index`, `.port`                                       |
+| start     | An `Event` with `.index`, `.port`, `.hostname` (the actual bound address) |
 | stop      | An `Event` with `.index`                                                |
 | error     | A real `ErrorEvent` — `.message`, `.error` (the original thrown value)   |
 | websocket | An `Event` with `.socket` (the `ws` library socket)                     |
@@ -67,11 +67,22 @@ payload via `event.detail`.
 ### `start(options)`
 
 Starts an HTTP (or, with `options.https`, HTTPS) server and returns a
-Promise that resolves to that server's index (used by `stop()`).
+Promise that resolves to `{ index, port, hostname, url }`:
+
+- `index` — this server's index, for `stop()`.
+- `port` — the actual bound port (useful when `options.port` was `0`, an
+  OS-assigned ephemeral port).
+- `hostname` — the actual bound address (from `server.address()`), not
+  merely an echo of `options.hostname`.
+- `url` — `${port}`/`${hostname}` pre-formatted as `http(s)://hostname:port/`.
 
 ```typescript
 type ServerOptions = {
   port: number;
+  /** Default: `"localhost"`. Matches `@johnhenry/leserve`'s `serve()` option
+   *  of the same name. Pass `"0.0.0.0"` (or `"::"`) to explicitly opt in to
+   *  binding every interface instead of loopback-only. */
+  hostname?: string;
   https?: {
     key: string;
     cert: string;
@@ -79,9 +90,10 @@ type ServerOptions = {
 };
 ```
 
-### `stop(index)`
+### `stop(server)`
 
-Stops the server started with the given index.
+Stops the server started with the given `start()`-resolved value (or, for
+backwards compatibility, its bare `index`).
 
 ### `use(middleware)`
 
@@ -180,6 +192,10 @@ minimal Node HTTP framework.
   handshake converted to a real `Request` through the same `toWebRequest()`
   every other event uses), so an origin check is always possible even
   though servant doesn't perform one for you.
+- **`start()` binds loopback only (`"localhost"`) by default, not every
+  interface.** A `servant` server is not reachable from the LAN unless you
+  explicitly pass `hostname: "0.0.0.0"` (or `"::"`) to `start()`
+  ([#6](https://github.com/johnhenry/servant/issues/6)).
 
 **What is still yours:**
 
@@ -211,6 +227,12 @@ minimal Node HTTP framework.
   legitimate client would (cross-site WebSocket hijacking) unless you check
   for it yourself using the `event.request`/`event.socket.close()` access
   described above; servant itself enforces nothing by default.
+- **Passing `hostname: "0.0.0.0"` (or `"::"`) is an explicit, deliberate
+  opt-in to exposing the server to every network interface** (including
+  the LAN, and any other network the host is on) — once you've opted in,
+  every other item in this list (no auth, no CORS/rate limiting, unvalidated
+  `Host`) applies to a much larger set of potential clients than
+  loopback-only, and is still entirely your responsibility to mitigate.
 
 ## Family
 

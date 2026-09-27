@@ -3,6 +3,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
+import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 // Import `fetch` from the same `undici` version as `Agent` below. Node's
@@ -114,6 +115,83 @@ describe("Event Listener Server Tests", async () => {
       isClosed,
       `Port ${port} should be closed after stopping the server`
     );
+  });
+
+  // Regression test for https://github.com/johnhenry/servant/issues/6:
+  // start() used to always call `server.listen(options.port, callback)` --
+  // no second (host) argument -- which makes Node bind every interface
+  // (`0.0.0.0`), not just loopback. A dev tool that binds every interface
+  // by default is reachable from the whole LAN, not just the machine
+  // running it.
+  await test("start() binds loopback only by default, not every interface", async () => {
+    const port = await genPort();
+    const server = await start({ port });
+    try {
+      // The resolved value's `hostname` comes from `server.address()` --
+      // the address actually bound by the kernel, not merely an echo of
+      // the (absent) `options.hostname` -- so this fails if the default
+      // ever regresses back to binding `0.0.0.0`/`::`.
+      assert.ok(
+        server.hostname === "127.0.0.1" || server.hostname === "::1",
+        `default bind address should be loopback, got ${server.hostname}`
+      );
+      assert.notEqual(server.hostname, "0.0.0.0");
+      assert.notEqual(server.hostname, "::");
+
+      // Independent check, not just trusting our own metadata: find a
+      // real non-loopback address for this machine and confirm the
+      // server actually refuses connections there. If the sandbox has no
+      // such interface (e.g. a container with only loopback), there's
+      // nothing to test against and the check is skipped rather than
+      // producing a false failure.
+      const lanAddress = Object.values(os.networkInterfaces())
+        .flat()
+        .find((info) => info && !info.internal && info.family === "IPv4")
+        ?.address;
+      if (lanAddress) {
+        await assert.rejects(
+          new Promise((resolve, reject) => {
+            const socket = net.connect({ host: lanAddress, port, timeout: 1000 });
+            socket.on("connect", () => {
+              socket.destroy();
+              resolve();
+            });
+            socket.on("timeout", () => {
+              socket.destroy();
+              reject(new Error("connection timed out (treated as refused)"));
+            });
+            socket.on("error", reject);
+          }),
+          `a server bound to loopback-only should refuse connections on ${lanAddress}`
+        );
+      }
+    } finally {
+      await stop(server);
+    }
+  });
+
+  await test("start() accepts an explicit hostname option and binds only that address", async () => {
+    const port = await genPort();
+    const server = await start({ port, hostname: "127.0.0.1" });
+    try {
+      assert.equal(server.hostname, "127.0.0.1");
+      assert.equal(server.port, port);
+      assert.equal(server.url, `http://127.0.0.1:${port}/`);
+      await assert.doesNotReject(fetch(`http://127.0.0.1:${port}`));
+    } finally {
+      await stop(server);
+    }
+  });
+
+  await test("start() still accepts '0.0.0.0' as an explicit opt-in", async () => {
+    const port = await genPort();
+    const server = await start({ port, hostname: "0.0.0.0" });
+    try {
+      assert.equal(server.hostname, "0.0.0.0");
+      await assert.doesNotReject(fetch(`http://127.0.0.1:${port}`));
+    } finally {
+      await stop(server);
+    }
   });
 
   await test("HTTPS server", async () => {
