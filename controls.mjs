@@ -81,10 +81,15 @@ class FetchEvent extends Event {
 }
 
 class StartEvent extends Event {
-  constructor(index, port) {
+  constructor(index, port, hostname) {
     super("start");
     this.index = index;
     this.port = port;
+    // The actual bound address (from `server.address()`, not just an echo
+    // of the requested `options.hostname`) -- see https://github.com/johnhenry/servant/issues/6.
+    // `hostname` is the name leserve's equivalent `serve()` option uses
+    // (default `"localhost"`); matched here for family-wide consistency.
+    this.hostname = hostname;
   }
 }
 
@@ -306,17 +311,47 @@ const start = async (options) => {
     target.dispatchEvent(new WebSocketEvent(ws, request));
   });
 
+  // Default to loopback-only, not every interface. Node's own default --
+  // what you get by never passing a second argument to `server.listen()`,
+  // which is what this used to do -- is "all interfaces" (`0.0.0.0`/`::`),
+  // silently exposing a dev server to the whole LAN. Matches leserve's
+  // `serve()`, which takes the same option name (`hostname`) with the same
+  // `"localhost"` default; `"0.0.0.0"` (or `"::"`) is still available as an
+  // explicit opt-in. See https://github.com/johnhenry/servant/issues/6.
+  const hostname = options.hostname ?? "localhost";
+
   return new Promise((resolve) => {
-    server.listen(options.port, () => {
+    server.listen(options.port, hostname, () => {
       const index = servers.length;
       servers.push(server);
-      target.dispatchEvent(new StartEvent(index, options.port));
-      resolve(index);
+      // Read back what was actually bound (e.g. `"localhost"` resolves to
+      // `127.0.0.1` or `::1`) rather than just echoing the requested
+      // `hostname` -- same reasoning as `actualPort` below: a caller that
+      // wants to print/log the real address needs the real one.
+      const address = server.address();
+      const actualPort = address?.port ?? options.port;
+      const actualHostname = address?.address ?? hostname;
+      target.dispatchEvent(new StartEvent(index, actualPort, actualHostname));
+      resolve({
+        index,
+        port: actualPort,
+        hostname: actualHostname,
+        url: `http${options.https ? "s" : ""}://${actualHostname}:${actualPort}/`,
+      });
     });
   });
 };
 
-const stop = (index) => {
+const stop = (indexOrServer) => {
+  // `start()` used to resolve to a bare index; it now resolves to
+  // `{ index, port, hostname, url }` so callers can see the actual bound
+  // address (https://github.com/johnhenry/servant/issues/6). Accept both
+  // shapes here so existing `stop(index)` callers (and this package's own
+  // tests) keep working unchanged.
+  const index =
+    typeof indexOrServer === "object" && indexOrServer !== null
+      ? indexOrServer.index
+      : indexOrServer;
   const server = servers[index];
   return new Promise((resolve) => {
     if (server?.listening) {

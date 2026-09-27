@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reaches 1.0.0.
 
+## 0.3.0 (2026-09-27)
+
+### Fixed
+
+- **`start()` no longer binds every network interface by default
+  ([#6](https://github.com/johnhenry/servant/issues/6)).**
+  `server.listen(options.port, callback)` — no host argument — is Node's
+  own "bind everything" form; a `servant` server was always reachable from
+  the whole LAN, not just the machine running it, with no way to opt out.
+  `start()` now takes `options.hostname` (default `"localhost"`, matching
+  `@johnhenry/leserve`'s `serve()` option of the same name) and passes it
+  to `server.listen(port, hostname, callback)`; `"0.0.0.0"`/`"::"` is still
+  available as an explicit opt-in. Found while hardening ORRERY's optional
+  Node companion.
+
+### Added
+
+- **`start()`'s resolved value now exposes the actual bound address**, not
+  just the server's index. It resolves to `{ index, port, hostname, url }`
+  — `port`/`hostname` are read back from `server.address()` (so `port: 0`,
+  an OS-assigned ephemeral port, resolves to the real port), and `url` is
+  those two pre-formatted as `http(s)://hostname:port/`. `"start"` events
+  gained the same `.hostname`.
+
+### Changed (breaking)
+
+- **`stop()` still accepts a bare index (for anyone who saved one from
+  0.2.0 or earlier), but the documented/expected argument is now the
+  object `start()` resolves to.** `stop(indexOrServer)` reads `.index` off
+  an object argument, or uses a non-object argument directly as the index,
+  so both forms keep working.
+
 ## 0.2.0 (2026-09-26)
 
 ### Fixed
